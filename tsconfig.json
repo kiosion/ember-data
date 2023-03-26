@@ -77,7 +77,7 @@
       "packages/model/src/-private/util.ts",
       "packages/model/src/-private/relationship-meta.ts",
       "packages/model/src/-private/promise-many-array.ts",
-      "packages/model/src/-private/model-for-mixin.ts",
+      "packages/model/src/-private/hooks/model-for-mixin.ts",
       "packages/model/src/-private/record-state.ts",
       "packages/model/src/-private/notify-changes.ts",
       "packages/canary-features/addon/index.ts",

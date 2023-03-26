@@ -1,7 +1,7 @@
 /**
   @module @ember-data/store
  */
-import { getOwner, setOwner } from '@ember/application';
+import { getOwner } from '@ember/application';
 import { assert, deprecate } from '@ember/debug';
 import { _backburner as emberBackburner } from '@ember/runloop';
 
@@ -46,7 +46,7 @@ import type { FindOptions } from '@ember-data/types/q/store';
 import type { Dict } from '@ember-data/types/q/utils';
 
 import { CacheHandler, type LifetimesService, type StoreRequestInfo } from './cache-handler';
-import peekCache, { setCacheFor } from './caches/cache-utils';
+import peekCache from './caches/cache-utils';
 import { IdentifierCache } from './caches/identifier-cache';
 import {
   InstanceCache,
@@ -54,12 +54,9 @@ import {
   preloadData,
   recordIdentifierFor,
   resourceIsFullyDeleted,
-  setRecordIdentifier,
   storeFor,
-  StoreMap,
 } from './caches/instance-cache';
 import RecordReference from './legacy-model-support/record-reference';
-import { DSModelSchemaDefinitionService, getModelFactory } from './legacy-model-support/schema-definition-service';
 import type ShimModelClass from './legacy-model-support/shim-model-class';
 import { getShimClass } from './legacy-model-support/shim-model-class';
 import { legacyCachePut, NonSingletonCacheManager, SingletonCacheManager } from './managers/cache-manager';
@@ -239,7 +236,7 @@ class Store {
   // Private
   declare _adapterCache: Dict<MinimumAdapterInterface & { store: Store }>;
   declare _serializerCache: Dict<MinimumSerializerInterface & { store: Store }>;
-  declare _modelFactoryCache: Dict<unknown>;
+  declare _modelFactoryCache: Record<string, { class: DSModelClass }>;
   declare _fetchManager: FetchManager;
   declare _requestCache: RequestCache;
   declare _schemaDefinitionService: SchemaDefinitionService;
@@ -440,30 +437,10 @@ class Store {
    * @public
    */
   instantiateRecord(
-    identifier: StableRecordIdentifier,
-    createRecordArgs: { [key: string]: unknown }
+    _identifier: StableRecordIdentifier,
+    _createRecordArgs: { [key: string]: unknown }
   ): DSModel | RecordInstance {
-    if (HAS_MODEL_PACKAGE) {
-      let modelName = identifier.type;
-
-      const cache = DEPRECATE_V1_RECORD_DATA ? this._instanceCache.getResourceCache(identifier) : this.cache;
-      // TODO deprecate allowing unknown args setting
-      let createOptions: any = {
-        _createProps: createRecordArgs,
-        // TODO @deprecate consider deprecating accessing record properties during init which the below is necessary for
-        _secretInit: {
-          identifier,
-          cache,
-          store: this,
-          cb: secretInit,
-        },
-      };
-
-      // ensure that `getOwner(this)` works inside a model instance
-      setOwner(createOptions, getOwner(this)!);
-      return getModelFactory(this, this._modelFactoryCache, modelName).class.create(createOptions);
-    }
-    assert(`You must implement the store's instantiateRecord hook for your custom model class.`);
+    assert(`You must implement the store's instantiateRecord hook`);
   }
 
   /**
@@ -477,15 +454,7 @@ class Store {
    * @param record
    */
   teardownRecord(record: DSModel | RecordInstance): void {
-    if (HAS_MODEL_PACKAGE) {
-      assert(
-        `expected to receive an instance of DSModel. If using a custom model make sure you implement teardownRecord`,
-        'destroy' in record
-      );
-      (record as DSModel).destroy();
-    } else {
-      assert(`You must implement the store's teardownRecord hook for your custom models`);
-    }
+    assert(`You must implement the store's teardownRecord hook`);
   }
 
   /**
@@ -499,13 +468,6 @@ class Store {
    * @public
    */
   getSchemaDefinitionService(): SchemaDefinitionService {
-    if (HAS_MODEL_PACKAGE) {
-      if (!this._schemaDefinitionService) {
-        // it is potentially a mistake for the RFC to have not enabled chaining these services, though highlander rule is nice.
-        // what ember-m3 did via private API to allow both worlds to interop would be much much harder using this.
-        this._schemaDefinitionService = new DSModelSchemaDefinitionService(this);
-      }
-    }
     assert(
       `You must registerSchemaDefinitionService with the store to use custom model classes`,
       this._schemaDefinitionService
@@ -601,29 +563,7 @@ class Store {
       `Passing classes to store methods has been removed. Please pass a dasherized string instead of ${modelName}`,
       typeof modelName === 'string'
     );
-    if (HAS_MODEL_PACKAGE) {
-      let normalizedModelName = normalizeModelName(modelName);
-      let maybeFactory = getModelFactory(this, this._modelFactoryCache, normalizedModelName);
-
-      // for factorFor factory/class split
-      let klass = maybeFactory && maybeFactory.class ? maybeFactory.class : maybeFactory;
-      if (!klass || !klass.isModel || this._forceShim) {
-        assert(
-          `No model was found for '${modelName}' and no schema handles the type`,
-          this.getSchemaDefinitionService().doesTypeExist(modelName)
-        );
-
-        return getShimClass(this, modelName);
-      } else {
-        // TODO @deprecate ever returning the klass, always return the shim
-        return klass;
-      }
-    }
-
-    assert(
-      `No model was found for '${modelName}' and no schema handles the type`,
-      this.getSchemaDefinitionService().doesTypeExist(modelName)
-    );
+    assert(`No schema was found for '${modelName}'`, this.getSchemaDefinitionService().doesTypeExist(modelName));
     return getShimClass(this, modelName);
   }
 
@@ -2759,10 +2699,4 @@ function extractIdentifierFromRecord(
 
 function isPromiseRecord(record: PromiseProxyRecord | RecordInstance): record is PromiseProxyRecord {
   return !!record.then;
-}
-
-function secretInit(record: RecordInstance, cache: Cache, identifier: StableRecordIdentifier, store: Store): void {
-  setRecordIdentifier(record, identifier);
-  StoreMap.set(record, store);
-  setCacheFor(record, cache);
 }

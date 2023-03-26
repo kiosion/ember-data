@@ -36,6 +36,11 @@ export function normalizeModelName(modelName: string) {
   }
   assert(`normalizeModelName support has been removed`);
 }
+export { _normalize as ___normalizeModelName };
+
+// @ember-data/model needs these temporarily
+export { setRecordIdentifier, StoreMap } from './caches/instance-cache';
+export { setCacheFor } from './caches/cache-utils';
 
 // TODO this should be a deprecated helper but we have so much usage of it
 // to also eliminate

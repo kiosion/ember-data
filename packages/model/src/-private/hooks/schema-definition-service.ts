@@ -1,44 +1,30 @@
 import { getOwner } from '@ember/application';
 import { deprecate } from '@ember/debug';
 
-import { importSync } from '@embroider/macros';
-
 import type Model from '@ember-data/model';
-import { HAS_MODEL_PACKAGE } from '@ember-data/private-build-infra';
 import { DEPRECATE_STRING_ARG_SCHEMAS } from '@ember-data/private-build-infra/deprecations';
+import type Store from '@ember-data/store';
+import { ___normalizeModelName } from '@ember-data/store/-private';
+import { DSModelSchema } from '@ember-data/types/q/ds-model';
 import type { RecordIdentifier } from '@ember-data/types/q/identifier';
 import type { AttributesSchema, RelationshipsSchema } from '@ember-data/types/q/record-data-schemas';
 
-import type Store from '../store-service';
-import normalizeModelName from '../utils/normalize-model-name';
-
-type ModelForMixin = (store: Store, normalizedModelName: string) => Model | null;
-
-let _modelForMixin: ModelForMixin;
-if (HAS_MODEL_PACKAGE) {
-  let _found;
-  _modelForMixin = function () {
-    if (!_found) {
-      _found = (importSync('@ember-data/model/-private') as typeof import('@ember-data/model/-private'))._modelForMixin;
-    }
-    return _found(...arguments);
-  };
-}
+import _modelForMixin from './model-for-mixin';
 
 export class DSModelSchemaDefinitionService {
   declare store: Store;
-  declare _relationshipsDefCache;
-  declare _attributesDefCache;
+  declare _relationshipsDefCache: Record<string, RelationshipsSchema>;
+  declare _attributesDefCache: Record<string, AttributesSchema>;
 
   constructor(store: Store) {
     this.store = store;
-    this._relationshipsDefCache = Object.create(null);
-    this._attributesDefCache = Object.create(null);
+    this._relationshipsDefCache = Object.create(null) as Record<string, RelationshipsSchema>;
+    this._attributesDefCache = Object.create(null) as Record<string, AttributesSchema>;
   }
 
   // Following the existing RD implementation
   attributesDefinitionFor(identifier: RecordIdentifier | { type: string }): AttributesSchema {
-    let modelName, attributes;
+    let modelName: string, attributes: AttributesSchema;
     if (DEPRECATE_STRING_ARG_SCHEMAS) {
       if (typeof identifier === 'string') {
         deprecate(
@@ -62,10 +48,10 @@ export class DSModelSchemaDefinitionService {
     attributes = this._attributesDefCache[modelName];
 
     if (attributes === undefined) {
-      let modelClass = this.store.modelFor(modelName);
+      let modelClass = this.store.modelFor(modelName) as DSModelSchema;
       let attributeMap = modelClass.attributes;
 
-      attributes = Object.create(null);
+      attributes = Object.create(null) as AttributesSchema;
       attributeMap.forEach((meta, name) => (attributes[name] = meta));
       this._attributesDefCache[modelName] = attributes;
     }
@@ -75,7 +61,7 @@ export class DSModelSchemaDefinitionService {
 
   // Following the existing RD implementation
   relationshipsDefinitionFor(identifier: RecordIdentifier | { type: string }): RelationshipsSchema {
-    let modelName, relationships;
+    let modelName: string, relationships: RelationshipsSchema;
     if (DEPRECATE_STRING_ARG_SCHEMAS) {
       if (typeof identifier === 'string') {
         deprecate(
@@ -99,8 +85,8 @@ export class DSModelSchemaDefinitionService {
     relationships = this._relationshipsDefCache[modelName];
 
     if (relationships === undefined) {
-      let modelClass = this.store.modelFor(modelName);
-      relationships = modelClass.relationshipsObject || null;
+      let modelClass = this.store.modelFor(modelName) as DSModelSchema;
+      relationships = modelClass.relationshipsObject || {};
       this._relationshipsDefCache[modelName] = relationships;
     }
 
@@ -108,25 +94,31 @@ export class DSModelSchemaDefinitionService {
   }
 
   doesTypeExist(modelName: string): boolean {
-    let normalizedModelName = normalizeModelName(modelName);
+    let normalizedModelName = ___normalizeModelName(modelName);
     let factory = getModelFactory(this.store, this.store._modelFactoryCache, normalizedModelName);
 
     return factory !== null;
   }
 }
 
-export function getModelFactory(store: Store, cache, normalizedModelName: string): Model | null {
+type ModelFactory = {
+  class: DSModelSchema;
+};
+
+export function getModelFactory(
+  store: Store,
+  cache: Record<string, ModelFactory>,
+  normalizedModelName: string
+): Model | null {
   let factory = cache[normalizedModelName];
 
   if (!factory) {
-    let owner: any = getOwner(store);
-    factory = owner.factoryFor(`model:${normalizedModelName}`);
+    let owner = getOwner(store);
+    factory = owner.factoryFor(`model:${normalizedModelName}`) as unknown as ModelFactory;
 
-    if (HAS_MODEL_PACKAGE) {
-      if (!factory) {
-        //Support looking up mixins as base types for polymorphic relationships
-        factory = _modelForMixin(store, normalizedModelName);
-      }
+    if (!factory) {
+      //Support looking up mixins as base types for polymorphic relationships
+      factory = _modelForMixin(store, normalizedModelName);
     }
 
     if (!factory) {
@@ -137,7 +129,7 @@ export function getModelFactory(store: Store, cache, normalizedModelName: string
     let klass = factory.class;
 
     if (klass.isModel) {
-      let hasOwnModelNameSet = klass.modelName && Object.prototype.hasOwnProperty.call(klass, 'modelName');
+      let hasOwnModelNameSet = !!klass.modelName && Object.prototype.hasOwnProperty.call(klass, 'modelName');
       if (!hasOwnModelNameSet) {
         Object.defineProperty(klass, 'modelName', { value: normalizedModelName });
       }

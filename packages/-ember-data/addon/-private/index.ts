@@ -4,15 +4,31 @@ import PromiseProxyMixin from '@ember/object/promise-proxy-mixin';
 import ObjectProxy from '@ember/object/proxy';
 
 import { LegacyNetworkHandler } from '@ember-data/legacy-compat';
+import { _modelFor, instantiateRecord, SchemaService, teardownRecord } from '@ember-data/model/hooks';
 import { RequestManager } from '@ember-data/request';
 import { Fetch } from '@ember-data/request/fetch';
 import BaseStore from '@ember-data/store';
+import type { StableRecordIdentifier } from '@ember-data/types/q/identifier';
+import { RecordInstance } from '@ember-data/types/q/record-instance';
 
 export class Store extends BaseStore {
   constructor(args: Record<string, unknown>) {
     super(args);
     this.requestManager = new RequestManager();
     this.requestManager.use([LegacyNetworkHandler, Fetch]);
+    this.registerSchemaDefinitionService(new SchemaService(this));
+  }
+
+  instantiateRecord(identifier: StableRecordIdentifier, args: Record<string, unknown>) {
+    return instantiateRecord(this, identifier, args);
+  }
+
+  teardownRecord(record: RecordInstance) {
+    teardownRecord(this, record);
+  }
+
+  modelFor(type: string) {
+    return _modelFor(this, type) || super.modelFor(type);
   }
 }
 
